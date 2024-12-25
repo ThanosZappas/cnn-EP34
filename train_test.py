@@ -1,14 +1,19 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import torch
 from sklearn.metrics import ConfusionMatrixDisplay
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from torchvision import transforms
-
+import splitfolders
 from COVID19Dataset import COVID19Dataset
 
+
 dataset_path = "datasets/COVID-19_Radiography_Dataset"
+classes = ['COVID', 'Lung_Opacity', 'Normal', 'Viral Pneumonia']
+splitfolders.fixed(dataset_path, output="output", seed=1337, fixed=(100, 0,10))
+# splitfolders.ratio(dataset_path, output="output", seed=1337, ratio=(.8,0, .2))
 
 def confusion_matrix(y, y_pred, num_classes):
     confusion_matrix = torch.zeros((num_classes, num_classes), dtype=torch.int64)
@@ -30,12 +35,17 @@ def display_train(train_dataloader):
     print(f"Labels batch shape: {train_labels.size()}")
     img = train_features[0].squeeze()
     label = train_labels[0]
-    plt.imshow(img, cmap="gray")
+
+    img = img.swapaxes(0, 1)
+    img = img.swapaxes(1, 2)
+    plt.title(classes[label])
+    plt.imshow(img)
     plt.show()
-    print(f"Label: {label}")
+    # print(classes[label])
 
 def get_dataset(root_dir):
     transform = transforms.Compose([
+        # transforms.Resize((224, 224)),
         transforms.ToTensor()
     ])
     return COVID19Dataset(root_dir=root_dir, transform=transform)
@@ -45,11 +55,10 @@ if __name__ == '__main__':
     y_pred = torch.tensor(np.random.randint(0, 3, 1000))
     num_classes = 3
     confusion_matrix = confusion_matrix(y, y_pred, num_classes)
-    display_confusion_matrix(confusion_matrix, num_classes)
+    # display_confusion_matrix(confusion_matrix, num_classes)
     dataset = get_dataset(dataset_path)
-    training_data, test_data = train_test_split(dataset, test_size=0.3, shuffle=True)
-
-    train_dataloader = DataLoader(training_data, batch_size=64, shuffle=True)
-    test_dataloader = DataLoader(test_data, batch_size=64, shuffle=True)
-
-    # display_train(train_dataloader)
+    training_dataset = get_dataset('output/train')
+    test_dataset = get_dataset('output/test')
+    train_dataloader = DataLoader(training_dataset, batch_size=64, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=64, shuffle=True)
+    display_train(train_dataloader)
