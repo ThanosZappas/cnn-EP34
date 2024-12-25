@@ -87,18 +87,15 @@ def display_batch(dataset, random_indexes):
     for cls, count in zip(classes, counts):
         print(f"Class: {cls}, Number of Images: {count}")
 
-
-def main():
+def get_dataset(root_dir):
     transform = transforms.Compose([
-        transforms.Resize((224, 224)),
         transforms.ToTensor()
     ])
+    return COVID19Dataset(root_dir=root_dir, transform=transform)
 
-    dataset = COVID19Dataset(root_dir=dataset_path, transform=transform)
+if __name__ == '__main__':
+    dataset = get_dataset(dataset_path)
 
     random_indexes = random.sample(range(len(dataset)), 25)
 
     display_batch(dataset, random_indexes)
-
-
-main()
