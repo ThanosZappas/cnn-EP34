@@ -4,16 +4,19 @@ from PIL import Image
 from torch.utils.data import Dataset
 import torch
 from torchvision import transforms
+from torchvision.transforms import Lambda
 from collections import Counter
 import matplotlib.pyplot as plt
+
 
 dataset_path = "datasets/COVID-19_Radiography_Dataset"
 
 
 class COVID19Dataset(Dataset):
-    def __init__(self, root_dir, transform=None):
+    def __init__(self, root_dir, transform=None, target_transform=None):
         self.root_dir = root_dir
         self.transform = transform
+        self.target_transform = target_transform
         self.data = []
         self.labels = []
         self.classes = []
@@ -43,6 +46,9 @@ class COVID19Dataset(Dataset):
         if self.transform:
             image = self.transform(image)
 
+        if self.target_transform:
+            label = self.target_transform(label)
+
         return image, label
 
     def display_batch(self, indexes):
@@ -58,6 +64,10 @@ class COVID19Dataset(Dataset):
 
             if isinstance(image, torch.Tensor):
                 image = image.permute(1, 2, 0).numpy()  # (C, H, W) to (H, W, C)
+
+            # Decode one-hot label for display if applicable
+            if isinstance(label, torch.Tensor) and label.dim() == 1 and label.sum() == 1:
+                label = label.argmax().item()
 
             ax.imshow(image)
             ax.set_title(self.classes[label])
@@ -89,9 +99,11 @@ def display_batch(dataset, random_indexes):
 
 def get_dataset(root_dir):
     transform = transforms.Compose([
+        transforms.Resize((224, 224)),
         transforms.ToTensor()
     ])
-    return COVID19Dataset(root_dir=root_dir, transform=transform)
+    # target_transform = Lambda(lambda y: torch.zeros(4, dtype=torch.float).scatter_(dim=0, index=torch.tensor(y), value=1))
+    return COVID19Dataset(root_dir=root_dir, transform=transform)#, target_transform=target_transform)
 
 if __name__ == '__main__':
     dataset = get_dataset(dataset_path)
