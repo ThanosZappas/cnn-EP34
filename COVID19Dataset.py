@@ -3,13 +3,12 @@ import random
 from PIL import Image
 from torch.utils.data import Dataset
 import torch
-from torchvision import transforms
-from torchvision.transforms import Lambda
-from collections import Counter
 import matplotlib.pyplot as plt
 
+import utils
 
-dataset_path = "datasets/COVID-19_Radiography_Dataset"
+CLASSES = utils.CLASSES
+DATA_ROOT_DIR = utils.DATA_ROOT_DIR
 
 
 class COVID19Dataset(Dataset):
@@ -80,34 +79,9 @@ class COVID19Dataset(Dataset):
         plt.show()
 
 
-def display_batch(dataset, random_indexes):
-    dataset.display_batch(random_indexes)
-    label_counts = Counter(dataset.labels)
-    classes = dataset.classes
-    counts = [label_counts[i] for i in range(len(classes))]
-
-    plt.bar(classes, counts, color='skyblue')
-    plt.xlabel('Classes')
-    plt.ylabel('Number of Images')
-    plt.title('Number of Images per Class')
-    plt.xticks(rotation=0)
-    plt.tight_layout()
-    plt.show()
-
-    for cls, count in zip(classes, counts):
-        print(f"Class: {cls}, Number of Images: {count}")
-
-def get_dataset(root_dir):
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor()
-    ])
-    # target_transform = Lambda(lambda y: torch.zeros(4, dtype=torch.float).scatter_(dim=0, index=torch.tensor(y), value=1))
-    return COVID19Dataset(root_dir=root_dir, transform=transform)#, target_transform=target_transform)
-
 if __name__ == '__main__':
-    dataset = get_dataset(dataset_path)
+    dataset = utils.get_dataset(DATA_ROOT_DIR)
 
     random_indexes = random.sample(range(len(dataset)), 25)
 
-    display_batch(dataset, random_indexes)
+    utils.display_batch(dataset, random_indexes)

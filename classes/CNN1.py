@@ -1,4 +1,4 @@
-import torch
+
 import torch.nn as nn
 
 
@@ -13,7 +13,7 @@ class CNN1(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.Flatten(),
-            nn.Linear(16 * 54 * 54, 32),
+            nn.Linear(16 * 54 * 54, 32), # 16 * 54 * 54 because of 224x224 images
             nn.ReLU(),
             nn.Linear(32, 4)
         )

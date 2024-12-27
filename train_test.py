@@ -1,123 +1,114 @@
-import matplotlib.pyplot as plt
 import torch
-import torch.optim as optim
-from sklearn.metrics import ConfusionMatrixDisplay
-from torch import nn
-from torch.utils.data import DataLoader, random_split
-from COVID19Dataset import get_dataset
-from cnn1 import CNN1
+import torchvision
+from torch import nn, optim
 
-DATA_ROOT_DIR = "datasets/Testing_COVID-19_Radiography_Dataset"
-CLASSES = ['COVID', 'Lung_Opacity', 'Normal', 'Viral Pneumonia']
-BATCH_SIZE = 64
-MAX_EPOCHS = 20
+import utils
+from classes.CCN2 import CNN2
+from classes.EarlyStopping import EarlyStopping
+from classes.CNN1 import CNN1
 
-def get_confusion_matrix(y, y_pred, num_classes):
-    confusion_matrix = torch.zeros((num_classes, num_classes), dtype=torch.int64)
-    for true_class, pred_class in zip(y, y_pred):
-        confusion_matrix[true_class, pred_class] += 1
-    return confusion_matrix
+BATCH_SIZE = 32
+MAX_EPOCHS = 5
+CLASSES = utils.CLASSES
+DATA_ROOT_DIR = utils.DATA_ROOT_DIR
 
 
-def display_confusion_matrix(confusion_matrix, num_classes):
-    confusion_matrix_np = confusion_matrix.numpy()
-    confusion_matrix_display = ConfusionMatrixDisplay(confusion_matrix=confusion_matrix_np,
-                                                      display_labels=range(num_classes))
-    confusion_matrix_display.plot()
-    plt.show()
-    print("Confusion Matrix: \n", confusion_matrix.numpy())
+def predict(model, dataloader, loss_function, device):
+    model.eval()  # Set the model to evaluation mode
+    size = len(dataloader.dataset)
+    num_batches = len(dataloader)
+    test_loss, correct = 0, 0
+    matrix = torch.zeros((len(CLASSES), len(CLASSES)), dtype=torch.int64)  # Initialize confusion matrix
 
+    with torch.no_grad():  # No gradient computation during evaluation
+        for X, y in dataloader:
+            X, y = X.to(device), y.to(device)
+            pred = model(X)
+            test_loss += loss_function(pred, y).item()
+            correct += (pred.argmax(1) == y).type(torch.float).sum().item()
+            matrix += utils.get_confusion_matrix(y, pred.argmax(1), len(CLASSES))
 
-def get_class_name(one_hot_encoded_label):
-    return CLASSES[one_hot_encoded_label.argmax().item()]
-
-
-#PLAYING WITH THE DATA
-def display_random_image(dataloader):
-    # Display image and label.
-    inputs, train_labels = next(iter(dataloader))
-    print(f"Feature batch shape: {inputs.size()}")
-    print(f"Labels batch shape: {train_labels.size()}")
-    img = inputs[0].squeeze()
-    label = train_labels[0]
-    img = img.swapaxes(0, 1)
-    img = img.swapaxes(1, 2)
-    plt.title(get_class_name(label))
-    plt.imshow(img, cmap="gray")
-    plt.show()
-    # print(CLASSES[label])
-
-
-def train_val_test_split(dataset):
-    generator = torch.Generator().manual_seed(42)
-    return random_split(dataset, [0.6, 0.2, 0.2], generator=generator)
+    test_loss /= num_batches
+    correct /= size
+    print(f"Accuracy: {(100 * correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
+    utils.display_confusion_matrix(matrix)
 
 
 def train_one_epoch(model, dataloader, optimizer, loss_function, device):
-    size = len(dataloader.dataset)
-    # Set the model to training mode - important for batch normalization and dropout layers
-    # Unnecessary in this situation but added for best practices
-    model.train()
+    model.train()  # Set the model to training mode
+    total_loss = 0
+
     for batch, (X, y) in enumerate(dataloader):
+        X, y = X.to(device), y.to(device)
+
         # Compute prediction and loss
         pred = model(X)
         loss = loss_function(pred, y)
 
         # Backpropagation
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        optimizer.zero_grad()
 
-        if batch % 100 == 0:
-            loss, current = loss.item(), batch * BATCH_SIZE + len(X)
-            print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+        total_loss += loss.item()
 
+        if batch % 10 == 0:
+            print(f"Batch {batch}: Loss = {loss.item():.6f}")
 
-def predict(model, dataloader, loss_function, device):
-    # Set the model to evaluation mode - important for batch normalization and dropout layers
-    # Unnecessary in this situation but added for best practices
-    model.eval()
-    size = len(dataloader.dataset)
-    num_batches = len(dataloader)
-    test_loss, correct, matrix = 0, 0, 0
-
-    # Evaluating the model with torch.no_grad() ensures that no gradients are computed during test mode
-    # also serves to reduce unnecessary gradient computations and memory usage for tensors with requires_grad=True
-    with torch.no_grad():
-        for X, y in dataloader:
-            pred = model(X)
-            test_loss += loss_function(pred, y).item()
-            correct += (pred.argmax(1) == y).type(torch.float).sum().item()
-            matrix += get_confusion_matrix(y, pred.argmax(1), len(CLASSES))
-
-    test_loss /= num_batches
-    correct /= size
-    print(f"Test Error: \n Accuracy: {(100 * correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
-    display_confusion_matrix(matrix, len(CLASSES))
-
-def get_device():
-    return 'cuda' if torch.cuda.is_available() else 'cpu'
+    avg_loss = total_loss / len(dataloader)
+    print(f"Training Loss: {avg_loss:.6f}")
+    return avg_loss
 
 
-def start_training(model, train_dataloader, optimizer, loss_function, device):
-    for t in range(MAX_EPOCHS):
-        print(f"Epoch {t + 1}\n-------------------------------")
-        train_one_epoch(model, train_dataloader, optimizer, loss_function, device)
-        # predict(model, test_dataloader, loss_function, device)
+def start_training_with_validation(model, train_dataloader, val_dataloader, optimizer, loss_function, device):
+    early_stopping = EarlyStopping(patience=5, delta=0.5)
+    train_losses, val_losses = [], []
+
+    for epoch in range(MAX_EPOCHS):
+        print(f"\nEpoch {epoch + 1}\n-------------------------------")
+
+        # Training Phase
+        train_loss = train_one_epoch(model, train_dataloader, optimizer, loss_function, device)
+        train_losses.append(train_loss)
+
+        # Validation Phase
+        model.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for X, y in val_dataloader:
+                X, y = X.to(device), y.to(device)
+                pred = model(X)
+                val_loss += loss_function(pred, y).item()
+
+        val_loss /= len(val_dataloader)
+        val_losses.append(val_loss)
+
+        print(f"Validation Loss: {val_loss:.6f}")
+
+        # Early Stopping Check
+        if early_stopping(train_loss, val_loss):
+            print("Early stopping triggered.")
+            break
+
     print("Done Training!")
 
 
 if __name__ == '__main__':
-    train_ds, value_ds, test_ds = train_val_test_split(get_dataset(DATA_ROOT_DIR))
-    train_dataloader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
-    value_dataloader = DataLoader(value_ds, batch_size=BATCH_SIZE, shuffle=True)
-    test_dataloader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=True)
-
-    device = get_device()
+    train_ds, val_ds, test_ds = utils.train_val_test_split(utils.get_dataset(DATA_ROOT_DIR), [0.6, 0.2, 0.2])
+    train_dataloader, val_dataloader, test_dataloader = utils.get_dataloaders(train_ds, val_ds, test_ds, BATCH_SIZE,
+                                                                              shuffle=True)
+    device = utils.get_device()
     print(f'Using device: {device}')
 
-    model = CNN1()
+    cnn1 = CNN1()
+    cnn2 = CNN2()
+    pretrained_resnet50 = torchvision.models.resnet50(pretrained=True)
+
+    model = pretrained_resnet50
     loss_function = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.99))
-    start_training(model, train_dataloader, optimizer, loss_function, device)
+    optimizer = optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.99))  # learning rate: cnn: 1e-3, resnet50: 1e-4
+
+    start_training_with_validation(model, train_dataloader, val_dataloader, optimizer, loss_function, device)
+
+    print("\nEvaluating on Test Set:\n-------------------------------")
     predict(model, test_dataloader, loss_function, device)
