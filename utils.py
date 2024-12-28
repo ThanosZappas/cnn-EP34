@@ -3,11 +3,94 @@ from collections import Counter
 import torch
 from matplotlib import pyplot as plt
 from sklearn.metrics import ConfusionMatrixDisplay
+from torch import nn
 from torch.utils.data import random_split, DataLoader
 from torchvision import transforms
+from classes.CNN1 import CNN1
+from classes.CNN2 import CNN2
+import torchvision
 
 CLASSES = ['COVID', 'Lung_Opacity', 'Normal', 'Viral Pneumonia']
-DATA_ROOT_DIR = "datasets/Trimmed_COVID-19_Radiography_Dataset"
+DATA_ROOT_DIR = "datasets/COVID-19_Radiography_Dataset"
+
+
+def get_user_input_for_training():
+    global DATA_ROOT_DIR
+    import sys
+    # Prompt for lower computer specifications
+    user_choice = input("Do you have low computer specifications? (y/n): ").strip().lower()
+    use_small_dataset = user_choice == 'y'
+
+    # Adjust parameters based on user input
+    if use_small_dataset:
+        print("Running with optimized parameters for low specifications.")
+        batch_size = 32
+        max_epochs_cnn = 10
+        max_epochs_resnet = 5
+        make_small_dataset()
+        DATA_ROOT_DIR = "datasets/Trimmed_COVID-19_Radiography_Dataset"
+    else:
+        print("Running with default parameters.")
+        batch_size = 64
+        max_epochs_cnn = 20
+        max_epochs_resnet = 5
+
+    dataset = get_dataset(DATA_ROOT_DIR)
+    display_batch(dataset, random.sample(range(len(dataset)), 25))
+
+    # User selects the model by number
+    print("\nAvailable Models:")
+    print("1. CNN1")
+    print("2. CNN2")
+    print("3. ResNet50")
+    print("4. Processed ResNet50")
+    model_choice = input("Enter the number corresponding to the model you want to use (1-4): ").strip()
+    # Determine model name and max epochs
+    max_epochs = max_epochs_cnn
+    model_name = "CNN1"
+    if model_choice == "1":
+        model_name = "CNN1"
+    elif model_choice == "2":
+        model_name = "CNN2"
+    elif model_choice == "3":
+        model_name = "ResNet50"
+        max_epochs = max_epochs_resnet
+    elif model_choice == "4":
+        model_name = "Processed_ResNet50"
+        max_epochs = max_epochs_resnet
+    else:
+        print("Invalid choice. Exiting.")
+        sys.exit(1)
+
+    # Return the parameters as a dictionary
+    return {
+        'batch_size': batch_size,
+        'max_epochs': max_epochs,
+        'model_name': model_name,
+        'use_small_dataset': use_small_dataset,
+        'dataset': dataset
+    }
+
+
+def initialize_model(model_name, device):
+    if model_name == "CNN1":
+        model = CNN1()
+    elif model_name == "CNN2":
+        model = CNN2()
+    elif model_name == "ResNet50":
+        model = torchvision.models.resnet50(pretrained=True)
+    elif model_name == "Processed_ResNet50":
+        model = process_resnet50(torchvision.models.resnet50(pretrained=True))
+    else:
+        raise ValueError(f"Unknown model name: {model_name}")
+    return model.to(device)
+
+
+def process_resnet50(model):
+    for param in model.parameters():
+        param.requires_grad = False
+    model.fc = nn.Linear(model.fc.in_features, len(CLASSES))
+    return model
 
 
 def train_val_test_split(dataset, lengths):
@@ -30,7 +113,7 @@ def get_confusion_matrix(y, y_pred, num_classes):
     confusion_matrix = torch.zeros((num_classes, num_classes), dtype=torch.int64)
 
     # Populate the confusion matrix
-    for true_class, pred_class in zip(y, y_pred):  # Ensure compatibility with tensors on GPU
+    for true_class, pred_class in zip(y, y_pred):
         confusion_matrix[true_class, pred_class] += 1
 
     return confusion_matrix
@@ -49,7 +132,7 @@ def display_confusion_matrix(confusion_matrix):
 
 
 def get_dataset(root_dir):
-    from COVID19Dataset import COVID19Dataset
+    from classes.COVID19Dataset import COVID19Dataset
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor()
@@ -128,9 +211,5 @@ def trim_dataset(original_dir, target_dir, class_ratios):
 def make_small_dataset():
     original_dataset_path = "datasets/COVID-19_Radiography_Dataset"
     trimmed_dataset_path = "datasets/Trimmed_COVID-19_Radiography_Dataset"
-    class_ratios = {'COVID': 0.05, 'Lung_Opacity': 0.05, 'Normal': 0.05, 'Viral Pneumonia': 0.05}
-
+    class_ratios = {'COVID': 0.10, 'Lung_Opacity': 0.10, 'Normal': 0.10, 'Viral Pneumonia': 0.10}
     trim_dataset(original_dataset_path, trimmed_dataset_path, class_ratios)
-
-# if __name__ == '__main__':
-# make_small_dataset()
